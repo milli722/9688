@@ -110,6 +110,7 @@ def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
     except Exception as e:
         # 攔截所有意外錯誤並傳回 LINE，方便 Debug
         send_line_push(user_id, f"🚨 監控過程發生錯誤：{str(e)}")
+@app.route("/callback", methods=['POST'])
 def callback():
     body = request.get_json()
     try:
@@ -136,3 +137,4 @@ def index():
 if __name__ == "__main__":
 
     app.run()
+
