@@ -135,6 +135,9 @@ def index():
     return "Bot is running!"
 
 if __name__ == "__main__":
+    # 從環境變數取得 Render 分配的 Port，預設為 5000
+    port = int(os.environ.get("PORT", 5000))
+    # 務必設定 host='0.0.0.0' 才能讓外部連線進來
+    app.run(host='0.0.0.0', port=port)
 
-    app.run()
 
