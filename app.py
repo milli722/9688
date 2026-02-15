@@ -33,11 +33,6 @@ def send_line_push(user_id, msg):
     requests.post(url, headers=headers, json=payload)
 
 # --- 監控邏輯 ---
-這是在資管專案開發中，根據你回傳的 TDX 欄位資訊（SectionName）進行適配後的完整 monitor_task 程式碼。這段代碼會直接搜尋 SectionName 欄位中是否包含你輸入的起點與終點。
-
-請將 GitHub 上 app.py 裡的整個 monitor_task 函式替換為以下內容：
-
-Python
 def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
     # 1. 取得 TDX Token
     token = get_tdx_token()
@@ -154,6 +149,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # 務必設定 host='0.0.0.0' 才能讓外部連線進來
     app.run(host='0.0.0.0', port=port)
+
 
 
 
