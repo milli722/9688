@@ -36,80 +36,79 @@ def send_line_push(user_id, msg):
 def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
     token = get_tdx_token()
     if not token: 
-        send_line_push(user_id, "❌ 系統錯誤：無法取得 TDX Token，請檢查環境變數設定。")
+        send_line_push(user_id, "❌ 系統錯誤：無法取得 TDX Token")
         return
     
-    headers = {
-        'authorization': f'Bearer {token}',
-        'Accept': 'application/json'
-    }
+    headers = {'authorization': f'Bearer {token}', 'Accept': 'application/json'}
 
     try:
         # 1. 抓取路段對照表
-        res_map = requests.get(SECTION_MAP_URL, headers=headers)
+        res_map = requests.get(SECTION_MAP_URL, headers=headers, timeout=10)
         map_data = res_map.json()
         
-        # TDX 回傳有時會直接是 List，有時會包在 'Sections' 或其他 Key 裡
+        # --- 資管強健性邏輯：自動尋找包含資料的欄位 ---
         if isinstance(map_data, list):
             df_map = pd.DataFrame(map_data)
-        elif isinstance(map_data, dict) and 'Sections' in map_data:
-            df_map = pd.DataFrame(map_data['Sections'])
-        else:
-            # 如果還是抓不到正確格式，將錯誤訊息傳回 LINE
-            send_line_push(user_id, f"⚠️ 路段資料格式異常，請檢查 TDX 帳號權限。")
-            return
+        elif isinstance(map_data, dict):
+            # TDX 有時會把資料包在 'Sections' 或 'value' 裡面
+            if 'Sections' in map_data:
+                df_map = pd.DataFrame(map_data['Sections'])
+            elif 'value' in map_data:
+                df_map = pd.DataFrame(map_data['value'])
+            else:
+                # 萬一都不是，嘗試抓取字典中第一個是列表的欄位
+                for key in map_data:
+                    if isinstance(map_data[key], list):
+                        df_map = pd.DataFrame(map_data[key])
+                        break
+                else:
+                    df_map = pd.DataFrame([map_data])
 
-        # 檢查欄位是否存在，預防 KeyError
+        # --- 診斷點：如果還是找不到欄位，回傳目前的欄位名給 LINE ---
         if 'StartDescription' not in df_map.columns:
-            send_line_push(user_id, "❌ 無法從 API 讀取路段地名，請稍後再試。")
+            # 這是為了幫你找出 API 到底給了什麼
+            cols = ", ".join(list(df_map.columns)[:5])
+            send_line_push(user_id, f"⚠️ 欄位對接失敗。收到欄位：{cols}")
             return
 
         # 2. 模糊搜尋起訖點
-        # 使用 na=False 防止資料中有空值導致報錯
         mask = df_map['StartDescription'].str.contains(start_point, na=False) & \
                df_map['EndDescription'].str.contains(end_point, na=False)
         target_ids = df_map[mask]['SectionID'].tolist()
         
         if not target_ids:
-            send_line_push(user_id, f"❌ 找不到路段：從 {start_point} 到 {end_point}，請確認地名正確性。")
+            send_line_push(user_id, f"❌ 找不到包含「{start_point}」到「{end_point}」的路段")
             return
 
-        # 成功鎖定路段後，回傳確認訊息
-        send_line_push(user_id, f"🚀 監控已啟動！\n路段：{start_point} ↔ {end_point}\n目標：{target_speed} km/h\n限時：{duration_hours} 小時")
+        send_line_push(user_id, f"🚀 監控啟動！\n目標路段已鎖定，時速達 {target_speed} km/h 時將通知您。")
 
-        # 3. 進入監控循環
+        # 3. 進入監控循環 (邏輯同前，但加入格式檢查)
         end_time = datetime.now() + timedelta(hours=float(duration_hours))
-        
         while datetime.now() < end_time:
             res_live = requests.get(LIVE_TRAFFIC_URL, headers=headers)
-            if res_live.status_code == 200:
-                live_data = res_live.json()
-                # 確保取到 LiveTraffics 內的資料
-                if isinstance(live_data, dict) and 'LiveTraffics' in live_data:
-                    df_live = pd.DataFrame(live_data['LiveTraffics'])
-                else:
-                    df_live = pd.DataFrame(live_data)
-                
-                if not df_live.empty and 'SectionID' in df_live.columns:
-                    my_segment = df_live[df_live['SectionID'].isin(target_ids)].copy()
-                    
-                    if not my_segment.empty:
-                        my_segment['TravelSpeed'] = pd.to_numeric(my_segment['TravelSpeed'], errors='coerce')
-                        current_avg = my_segment['TravelSpeed'].mean()
-                        
-                        # 只有當平均時速達標才通知
-                        if current_avg >= float(target_speed):
-                            send_line_push(user_id, f"🎉 【達標通知】\n目前 {start_point}-{end_point} 平均時速：{current_avg:.1f} km/h\n現在出發正好，一路順風！")
-                            return 
+            live_data = res_live.json()
             
-            # 每 8 分鐘檢查一次
-            time.sleep(480) 
+            # 同樣對 Live Data 進行解包
+            if isinstance(live_data, dict) and 'LiveTraffics' in live_data:
+                df_live = pd.DataFrame(live_data['LiveTraffics'])
+            else:
+                df_live = pd.DataFrame(live_data)
+            
+            if not df_live.empty and 'SectionID' in df_live.columns:
+                my_segment = df_live[df_live['SectionID'].isin(target_ids)].copy()
+                if not my_segment.empty:
+                    my_segment['TravelSpeed'] = pd.to_numeric(my_segment['TravelSpeed'], errors='coerce')
+                    current_avg = my_segment['TravelSpeed'].mean()
+                    if current_avg >= float(target_speed):
+                        send_line_push(user_id, f"🎉 【達標通知】\n目前平均時速：{current_avg:.1f} km/h\n符合目標 {target_speed} km/h，快出發吧！")
+                        return 
+            
+            time.sleep(480) # 每 8 分鐘檢查一次
         
-        send_line_push(user_id, f"⏰ 監控逾時：已監控 {duration_hours} 小時仍未達標，系統自動停止任務。")
+        send_line_push(user_id, f"⏰ 監控時限 ({duration_hours}hr) 已到，任務結束。")
 
     except Exception as e:
-        # 攔截所有意外錯誤並傳回 LINE，方便 Debug
-        send_line_push(user_id, f"🚨 監控過程發生錯誤：{str(e)}")
+        send_line_push(user_id, f"🚨 系統執行異常：{str(e)}")
 @app.route("/callback", methods=['POST'])
 def callback():
     body = request.get_json()
@@ -139,5 +138,6 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # 務必設定 host='0.0.0.0' 才能讓外部連線進來
     app.run(host='0.0.0.0', port=port)
+
 
 
