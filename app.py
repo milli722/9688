@@ -36,7 +36,7 @@ def send_line_push(user_id, msg):
 def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
     token = get_tdx_token()
     if not token: 
-        send_line_push(user_id, "❌ 系統錯誤：無法取得 TDX Token")
+        send_line_push(user_id, "系統錯誤：無法取得 TDX Token")
         return
     
     headers = {'authorization': f'Bearer {token}', 'Accept': 'application/json'}
@@ -68,7 +68,7 @@ def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
         if 'StartDescription' not in df_map.columns:
             # 這是為了幫你找出 API 到底給了什麼
             cols = ", ".join(list(df_map.columns)[:5])
-            send_line_push(user_id, f"⚠️ 欄位對接失敗。收到欄位：{cols}")
+            send_line_push(user_id, f"欄位對接失敗。收到欄位：{cols}")
             return
 
         # 2. 模糊搜尋起訖點
@@ -77,10 +77,10 @@ def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
         target_ids = df_map[mask]['SectionID'].tolist()
         
         if not target_ids:
-            send_line_push(user_id, f"❌ 找不到包含「{start_point}」到「{end_point}」的路段")
+            send_line_push(user_id, f"找不到包含「{start_point}」到「{end_point}」的路段")
             return
 
-        send_line_push(user_id, f"🚀 監控啟動！\n目標路段已鎖定，時速達 {target_speed} km/h 時將通知您。")
+        send_line_push(user_id, f"9688監控啟動！\n目標路段已鎖定，時速達 {target_speed} km/h 時將通知您。")
 
         # 3. 進入監控循環 (邏輯同前，但加入格式檢查)
         end_time = datetime.now() + timedelta(hours=float(duration_hours))
@@ -138,6 +138,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # 務必設定 host='0.0.0.0' 才能讓外部連線進來
     app.run(host='0.0.0.0', port=port)
+
 
 
 
