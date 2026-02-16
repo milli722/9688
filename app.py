@@ -35,63 +35,89 @@ def send_line_push(user_id, msg):
 def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
     token = get_tdx_token()
     if not token: 
-        send_line_push(user_id, "系統錯誤：無法取得 Token")
+        send_line_push(user_id, "❌ 系統錯誤：無法取得 Token")
         return
     
     headers = {'authorization': f'Bearer {token}', 'Accept': 'application/json'}
 
     try:
         # 1. 抓取全台路段對照表
-        res_map = requests.get(SECTION_MAP_URL, headers=headers, timeout=15)
-        df_map = pd.DataFrame(res_map.json()) # 假設已解包
+        res_map = requests.get(SECTION_MAP_URL, headers=headers, timeout=20)
+        data = res_map.json()
+        
+        # 強大解包邏輯：確保轉成 DataFrame
+        if isinstance(data, dict):
+            for k in ['Sections', 'value', 'data']:
+                if k in data:
+                    df_map = pd.DataFrame(data[k])
+                    break
+            else:
+                df_map = pd.DataFrame(data)
+        else:
+            df_map = pd.DataFrame(data)
 
-        # 2. 【核心邏輯】找出起點與終點的索引位置
-        # 尋找包含起點的第一個路段
-        start_mask = df_map['SectionName'].str.contains(start_point, na=False)
-        # 尋找包含終點的第一個路段
-        end_mask = df_map['SectionName'].str.contains(end_point, na=False)
-
-        if not start_mask.any() or not end_mask.any():
-            send_line_push(user_id, f"找不到起點「{start_point}」或終點「{end_point}」，請輸入正確格式或道路名稱")
+        # 2. 自動偵測地名欄位 (適配不同版本的 TDX 欄位名)
+        name_col = None
+        for col in ['SectionName', 'StartDescription', 'SectionID']:
+            if col in df_map.columns:
+                name_col = col
+                break
+        
+        if not name_col:
+            send_line_push(user_id, f"❌ 無法辨識資料欄位，請檢查 API 回傳格式。")
             return
 
-        # 取得索引序號
+        # 3. 執行「起點」與「終點」索引定位
+        start_mask = df_map[name_col].str.contains(start_point, na=False)
+        end_mask = df_map[name_col].str.contains(end_point, na=False)
+
+        if not start_mask.any() or not end_mask.any():
+            send_line_push(user_id, f"❌ 找不到「{start_point}」或「{end_point}」，請確認名稱正確。")
+            return
+
+        # 取得範圍索引
         start_idx = df_map[start_mask].index.min()
         end_idx = df_map[end_mask].index.max()
-
-        # 確保索引順序（處理南下北上）
         idx_min, idx_max = min(start_idx, end_idx), max(start_idx, end_idx)
         
-        # 抓出範圍內所有的 SectionID
+        # 抓出範圍內所有 SectionID
         target_ids = df_map.iloc[idx_min : idx_max + 1]['SectionID'].tolist()
-        route_desc = f"{start_point} ↔ {end_point} (共 {len(target_ids)} 個路段)"
+        
+        send_line_push(user_id, f"🚀 全線監控啟動！\n範圍：{start_point} ↔ {end_point}\n包含 {len(target_ids)} 個細分路段\n目標平均時速：{target_speed} km/h")
 
-        send_line_push(user_id, f"長途監控啟動！\n範圍：{route_desc}\n目標平均：{target_speed} km/h")
-
-        # 3. 進入監控循環
+        # 4. 進入循環監控
         end_time = datetime.now() + timedelta(hours=float(duration_hours))
         while datetime.now() < end_time:
-            res_live = requests.get(LIVE_TRAFFIC_URL, headers=headers, timeout=15)
-            live_data = res_live.json()
-            df_live = pd.DataFrame(live_data) # 假設已解包
+            res_live = requests.get(LIVE_TRAFFIC_URL, headers=headers, timeout=20)
+            live_json = res_live.json()
             
-            if not df_live.empty:
-                # 過濾出整個範圍路徑的資料
-                my_route = df_live[df_live['SectionID'].isin(target_ids)].copy()
-                if not my_route.empty:
-                    my_route['TravelSpeed'] = pd.to_numeric(my_route['TravelSpeed'], errors='coerce')
-                    # 計算整段路的「平均時速」
-                    total_avg_speed = my_route['TravelSpeed'].mean()
+            # 即時資料同樣進行自動解包
+            df_live = pd.DataFrame()
+            if isinstance(live_json, dict):
+                for k in ['LiveTraffics', 'value']:
+                    if k in live_json:
+                        df_live = pd.DataFrame(live_json[k])
+                        break
+            else:
+                df_live = pd.DataFrame(live_json)
+
+            if not df_live.empty and 'SectionID' in df_live.columns:
+                # 過濾出該範圍內的所有路段時速
+                route_data = df_live[df_live['SectionID'].isin(target_ids)].copy()
+                if not route_data.empty:
+                    route_data['TravelSpeed'] = pd.to_numeric(route_data['TravelSpeed'], errors='coerce')
+                    avg_speed = route_data['TravelSpeed'].mean()
                     
-                    if total_avg_speed >= float(target_speed):
-                        send_line_push(user_id, f"🎉 【全線通暢通知】\n{start_point} 到 {end_point} 全段平均時速：{total_avg_speed:.1f} km/h\n，可以出發了，別拖了！")
+                    if avg_speed >= float(target_speed):
+                        send_line_push(user_id, f"🎉 【全線達標】\n{start_point}-{end_point} 平均時速：{avg_speed:.1f} km/h\n目前路況順暢，可以出發！")
                         return 
             
-            time.sleep(480) 
-        send_line_push(user_id, " 監控時限已到，任務結束。")
+            time.sleep(480) # 每 8 分鐘檢查一次
+            
+        send_line_push(user_id, f"⏰ 監控時限 ({duration_hours}hr) 已到，任務結束。")
 
     except Exception as e:
-        send_line_push(user_id, f"系統異常：{str(e)}")
+        send_line_push(user_id, f"🚨 系統異常：{str(e)}")
 @app.route("/callback", methods=['POST'])
 def callback():
     body = request.get_json()
@@ -121,6 +147,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # 務必設定 host='0.0.0.0' 才能讓外部連線進來
     app.run(host='0.0.0.0', port=port)
+
 
 
 
