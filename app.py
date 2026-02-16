@@ -35,7 +35,7 @@ def send_line_push(user_id, msg):
 def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
     token = get_tdx_token()
     if not token: 
-        send_line_push(user_id, "❌ 系統錯誤：無法取得 Token")
+        send_line_push(user_id, "系統錯誤：無法取得 Token")
         return
     
     headers = {'authorization': f'Bearer {token}', 'Accept': 'application/json'}
@@ -64,7 +64,7 @@ def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
                 break
         
         if not name_col:
-            send_line_push(user_id, f"❌ 無法辨識資料欄位，請檢查 API 回傳格式。")
+            send_line_push(user_id, f"無法辨識資料欄位，請檢查 API 回傳格式")
             return
 
         # 3. 執行「起點」與「終點」索引定位
@@ -72,7 +72,7 @@ def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
         end_mask = df_map[name_col].str.contains(end_point, na=False)
 
         if not start_mask.any() or not end_mask.any():
-            send_line_push(user_id, f"❌ 找不到「{start_point}」或「{end_point}」，請確認名稱正確。")
+            send_line_push(user_id, f"找不到「{start_point}」或「{end_point}」，請確認名稱正確")
             return
 
         # 取得範圍索引
@@ -109,15 +109,15 @@ def monitor_task(user_id, start_point, end_point, target_speed, duration_hours):
                     avg_speed = route_data['TravelSpeed'].mean()
                     
                     if avg_speed >= float(target_speed):
-                        send_line_push(user_id, f"🎉 【全線達標】\n{start_point}-{end_point} 平均時速：{avg_speed:.1f} km/h\n目前路況順暢，可以出發！")
+                        send_line_push(user_id, f"🎉 【全線達標】\n{start_point}-{end_point} 平均時速：{avg_speed:.1f} km/h\n目前路況順暢，可以出發，別拖拖拉拉！")
                         return 
             
             time.sleep(480) # 每 8 分鐘檢查一次
             
-        send_line_push(user_id, f"⏰ 監控時限 ({duration_hours}hr) 已到，任務結束。")
+        send_line_push(user_id, f"監控時限 ({duration_hours}hr) 已到，任務結束\n若需繼續監控請重新發送需求")
 
     except Exception as e:
-        send_line_push(user_id, f"🚨 系統異常：{str(e)}")
+        send_line_push(user_id, f"系統異常：{str(e)}")
 @app.route("/callback", methods=['POST'])
 def callback():
     body = request.get_json()
@@ -147,6 +147,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # 務必設定 host='0.0.0.0' 才能讓外部連線進來
     app.run(host='0.0.0.0', port=port)
+
 
 
 
