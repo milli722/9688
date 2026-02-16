@@ -14,7 +14,7 @@ TDX_CLIENT_SECRET = os.environ.get('TDX_CLIENT_SECRET')
 LINE_ACCESS_TOKEN = os.environ.get('LINE_ACCESS_TOKEN')
 
 # API 網址
-SECTION_MAP_URL = "https://tdx.transportdata.tw/api/basic/v2/Road/Traffic/Section/Freeway?%24top=500&%24format=JSON"
+SECTION_MAP_URL = "https://tdx.transportdata.tw/api/basic/v2/Road/Traffic/Section/Freeway?%24format=JSON"
 LIVE_TRAFFIC_URL = "https://tdx.transportdata.tw/api/basic/v2/Road/Traffic/Live/Freeway?%24select=SectionID%2CTravelSpeed&%24top=150&%24format=JSON"
 
 def get_tdx_token():
@@ -149,6 +149,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     # 務必設定 host='0.0.0.0' 才能讓外部連線進來
     app.run(host='0.0.0.0', port=port)
+
 
 
 
